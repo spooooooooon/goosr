@@ -8,12 +8,17 @@ import types
 from asyncio import sleep
 from random import choice, randint
 from time import time
+from dotenv import load_dotenv
+
+load_dotenv()
 
 import openai
 import pydle  # https://github.com/Shizmob/pydle
 import requests
 import yaml
 from jellyfish import jaro_winkler_similarity
+
+
 
 #
 # Uses openai's api to respond to prompts and chat dialogs.
@@ -87,25 +92,20 @@ def openaiRequest(prompt, stop="", max_tokens=35):
 
     # select the top answer and replace blank lines with a newline
     answer = response.choices[0].text.strip().replace("\n\n", "\n")
-    answer = answer.replace("!", ".")
-    answer = answer.replace("?", ".")
 
     if finish_reason != "stop":
-        if "." in answer:
+        if any(punct in answer for punct in ["! ","? ",". "]):
             globalLog.warning(
                 f"Did not hit a stop token, trimming this answer. Finish reason: {finish_reason}. Answer was: {answer}"
             )
-            answer = answer.split(". ", 1)[0]
-        else:
-            globalLog.warning(
-                f"Did not hit a stop token and there were no sentences. Finish reason: {finish_reason}. Answer: {answer}"
-            )
-            answer = ""
+            answer = re.split("\? |\. |\! ", answer)[:-1]
+            answer = ". ".join(answer)
 
     return answer
 
 
 def randomWord(lang="en", length=8):
+    """ Requests a random word from herokuapp API. """
     url = f"https://random-word-api.herokuapp.com/word?length={length}&lang={lang}&number=1"
     words = json.loads(requests.get(url).text)
     return words[0]
@@ -125,7 +125,8 @@ class goosr(pydle.Client):
         self.log.info(f"Connected to server. Joining {channels}")
         for channel in channels:
             await self.join(channel)
-        self.joinChannels = []
+            await sleep(1)
+        #self.joinChannels = []
 
         if globalCfg.randomPersonality:
             personality, accent = await self.randomizePersonality()
@@ -300,7 +301,7 @@ class goosr(pydle.Client):
                         elif command == "status":
                             # check status
                             # ~status
-                            status = f"P/A: '{self.personality}'/'{self.accent}' Channels: {list(self.channels.keys())}"
+                            status = f"P/A: '{self.personality}'/'{self.accent}' Channels: {list(self.channels.keys())} Rejoining: {self.rejoining}"
                             await self.message(source, status)
 
 
@@ -349,7 +350,7 @@ class goosr(pydle.Client):
                 f"{source}: {message}".strip().replace(
                     f"{self.nickname}: ", "")
             )
-            userBuffer[source][target] = userBuffer[source][target][-25:]
+            userBuffer[source][target] = userBuffer[source][target][-1 * (globalCfg.chanBufferLength):]
             self.log.debug(
                 f"Buffer for {source} in {target}:\n {userBuffer[source][target]}"
             )
@@ -378,56 +379,78 @@ class goosr(pydle.Client):
 
             chance = globalCfg.replyChance
 
-            if self.nickname in message:
+            if self.nickname.lower() in message.lower():
                 if (source in adminList):
                     chance = 100
                 else:
                     chance = globalCfg.directReplyChance
-                chatBuffer = userBuffer[source][target]
+                #chatBuffer = userBuffer[source][target]
+                # calculate delay timer based on wpm setting to 'read' the line twice as fast as we type
+                delayTimer = len(message.split(" ")) / (globalCfg.wpm / 30)
+                await sleep(5.55 + delayTimer)
 
             if diceRoll <= chance:
 
                 # create a prompt
-                prompt = await self.create_prompt(
-                    chatBuffer, personality=self.personality, accent=self.accent
-                )
+                if self.nickname.lower() in message.lower():
+
+                    prompt = await self.create_prompt(
+                        userBuffer[source][target] + chatBuffer, personality=self.personality, accent=self.accent
+                    )
+                else:
+                    prompt = await self.create_prompt(
+                        chatBuffer, personality=self.personality, accent=self.accent
+                    )
 
                 # use newline as the stop token
                 answer = openaiRequest(prompt, " \n", ai.max_tokens)
-                answer = answer.lower().split("\n")[0]
+                #answer = answer.lower().split("\n")[0]
+                answer = answer.lower().replace("\n", ". ")
                 answer = await self.strip_answer(answer)
-                if await self.check_similarity(answer, chatBuffer):
-                    self.log.warning(
-                        f"Answer rejected for similarity in {target}: {answer}"
-                    )
-                    return
-                if await self.filter_answer(answer):
-                    self.log.warning(f"Answer was rejected: {answer}")
-                    return
                 if answer:
-                    # log training data to file if enabled
-                    if globalCfg.logTrainingData:
-                        trainingData = {}
-                        trainingPrompt = f"{prompt}\n\n###\n\n"
-                        trainingData["prompt"] = trainingPrompt
-                        # space in front of completion according to docs
-                        trainingData["completion"] = f" {answer}\n"
-                        # dump dict to json
-                        trainingData = json.dumps(trainingData)
-                        self.trainingLog.info(trainingData)
-                    # calculate delay timer based on wpm setting
-                    delayTimer = len(answer.split(" ")) / (globalCfg.wpm / 60)
 
-                    # wait until we are done typing other messages
-                    while self.typing:
-                        await sleep(1)
-                    self.typing = True
-                    self.log.info(
-                        f"Replying to {source} in {target} with response (after sleeping for {delayTimer}s): {answer}"
-                    )
-                    await sleep(delayTimer)
-                    await self.message(target, answer)
-                    self.typing = False
+                    for line in re.split("\. |\? |\! ", answer):
+                        if await self.check_similarity(line, chatBuffer):
+                            self.log.warning(
+                                f"Answer rejected for similarity in {target}: {line}"
+                            )
+                            continue
+                        if await self.filter_answer(line):
+                            self.log.warning(f"Answer was rejected: {line}")
+                            continue
+                        
+                        # add my own lines to the channel buffer
+                        chatBuffer.append(f"{self.nickname}: {line}".strip())
+                        chatBuffer = chatBuffer[-1 * (globalCfg.chanBufferLength):]
+                        self.log.debug(f"Buffer for {target}:\n {chatBuffer}")
+
+                        # save the modified buffer
+                        self.channels[target]["chatBuffer"] = chatBuffer
+
+                        # log training data to file if enabled
+                        if globalCfg.logTrainingData:
+                            trainingData = {}
+                            trainingPrompt = f"{prompt}\n\n###\n\n"
+                            trainingData["prompt"] = trainingPrompt
+                            # space in front of completion according to docs
+                            trainingData["completion"] = f" {line}\n"
+                            # dump dict to json
+                            trainingData = json.dumps(trainingData)
+                            self.trainingLog.info(trainingData)
+
+                        # calculate delay timer based on wpm setting
+                        delayTimer = 5.5555 + len(line.split(" ")) / (globalCfg.wpm / 60)
+
+                        # wait until we are done typing other messages
+                        while self.typing:
+                            await sleep(1)
+                        self.typing = True
+                        self.log.info(
+                            f"[{target}] Replying to {source} (after sleeping for {int(delayTimer)}s): {line}"
+                        )
+                        await sleep(delayTimer)
+                        await self.message(target, line)
+                        self.typing = False
                 return
 
     async def filter_message(self, message, target, source, buffer=[]):
@@ -455,7 +478,7 @@ class goosr(pydle.Client):
             return True
 
         # filter out commands sent to other bots
-        if (message[:1] in ["!", "@", "?"]) and (message[:1] not in commandChar):
+        if (message[:1] in ["!", "@", "?", "`", ",", "."]) and (message[:1] not in commandChar):
             return True
 
         # filter out messages that contain non-ascii characters or ansi control sequences
@@ -494,10 +517,9 @@ class goosr(pydle.Client):
         """Cleans up the answer to make it more presentable."""
         answer = answer.strip()
 
-        # remove quotes from the ends of the answer
+        # remove quotes from the answer
         for char in ['"', "'"]:
-            answer = answer.lstrip(char)
-            answer = answer.rstrip(char)
+            answer = answer.replace(char, "")
 
         # if the answer had colons just grab everything to the right of it
         answer = answer.split(":")[-1:][0].strip()
@@ -509,9 +531,13 @@ class goosr(pydle.Client):
 
     async def create_prompt(self, buffer, personality, accent):
         """Combine the buffer with the personality and accent to create a prompt for the API."""
-        header = f"The following is a chat log:"
+        header = f"Your name is {self.nickname}. The following is a chat log between you and other chatters:"
         chatlog = "\n".join(buffer)
-        disposition = f"Create a {personality} sentence {accent}:"
+        if self.nickname in buffer[-1]:
+            disposition = f"Responding to {buffer[-1].split(': ', 1)[0]}, create a {personality} response {accent}:"
+        else:
+            disposition = f"Without mentioning your own name, create a {personality} response {accent}:"
+        
         prompt = "\n\n".join([header, chatlog, disposition])
         return prompt
 
