@@ -21,7 +21,7 @@ global:                     # global settings apply to all clients. reload with 
     minLength: 4
     maxLength: 9
   logTrainingData: True     # logs training data suitable for fine-tuning to ./training_data/ (you must create this folder if this option is enabled.)
-clients:                           
+clients:
   underworld:                         # this will function as the client's internal name. must be unique
     enabled: True
     PING_TIMEOUT: 300                 # optional
