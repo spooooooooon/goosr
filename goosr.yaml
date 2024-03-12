@@ -40,7 +40,7 @@ clients:
       real: ''
     joinChannels:
       - '#birdnest'
-      - '#halcyon'
+      - '#lrh'
   swepipe_v6:                         # this will function as the client's internal name. must be unique
     enabled: False
     PING_TIMEOUT: 300                 # optional
@@ -58,4 +58,4 @@ clients:
       user: ''
       real: ''
     joinChannels:
-      - '#halcyon'
+      - '#lrh'

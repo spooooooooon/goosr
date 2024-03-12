@@ -1,5 +1,5 @@
-jellyfish==0.9.0
-openai==0.27.8
-pydle==1.0.0
-PyYAML==6.0
-requests==2.27.1
+jellyfish==1.0.3
+openai==1.13.3
+pydle==1.0.1
+PyYAML==6.0.1
+requests==2.31.0
