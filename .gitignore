@@ -1,3 +1,4 @@
 .idea
 .env
 training_data/*
+goosr.yaml

@@ -46,8 +46,6 @@ with open("ignore_users") as file:
 with open("ignore_words") as file:
     ignoredWords = file.read().splitlines()
 
-with open("moods") as file:
-    moods = file.read().splitlines()
 
 def openaiRequest(prompt, stop="", max_tokens=35):
     """ wrapper function for openai completion that just returns the best answer as a string """
@@ -573,7 +571,7 @@ class goosr(pydle.Client):
         with open("ignore_words") as file:
             ignoredWords = file.read().splitlines()
 
-        with open("moods") as file:
+        with open("personalities/" + globalCfg.personality + "/moods.txt") as file:
             moods = file.read().splitlines()
 
         # This file must exist as it's used as the system prompt for all API requests
@@ -601,7 +599,10 @@ if __name__ == "__main__":
 
     if not os.path.isfile(".env"):
         print("Copy .env.example to .env and put your openai or compatible key to continue")
-        # noinspection PyUnresolvedReferences
+        os._exit(0)
+
+    if not os.path.isfile("goosr.yaml"):
+        print("Copy goosr.yaml.example to goosr.yaml and fill in your details to continue")
         os._exit(0)
 
     simple = types.SimpleNamespace()
@@ -653,6 +654,9 @@ if __name__ == "__main__":
             exampleChats = file.read().splitlines()
     else:
         exampleChats = None
+
+    with open("personalities/" + globalCfg.personality + "/moods.txt") as file:
+        moods = file.read().splitlines()
 
     for client in config["clients"].items():
         if client[1]["enabled"]:
