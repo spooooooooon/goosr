@@ -5,6 +5,8 @@ import os
 import re
 import traceback
 import types
+import random
+import argparse
 from asyncio import sleep
 from random import choice, randint
 from time import time
@@ -17,8 +19,6 @@ import pydle  # https://github.com/Shizmob/pydle
 import requests
 import yaml
 from jellyfish import jaro_winkler_similarity
-
-
 
 #
 # Uses openai's api to respond to prompts and chat dialogs.
@@ -38,7 +38,6 @@ openai.api_key = os.getenv("oaik")
 with open("admin_users") as file:
     adminList = file.read().splitlines()
 
-
 # ignore all messages from these nicks
 with open("ignore_users") as file:
     ignoreList = file.read().splitlines()
@@ -48,40 +47,30 @@ with open("ignore_words") as file:
     ignoredWords = file.read().splitlines()
 
 
-# defaults to the first personality and accent in each list
-# Prompt will be: 'Generate a {personality} response {accent}:'
-with open("personalities") as file:
-    personalities = file.read().splitlines()
-with open("accents") as file:
-    accents = file.read().splitlines()
-
-
 def openaiRequest(prompt, stop="", max_tokens=35):
     """ wrapper function for openai completion that just returns the best answer as a string """
 
-    if ai.model == "ada":
-        model = "text-ada-001"
-    elif ai.model == "babbage":
-        model = "text-babbage-001"
-    elif ai.model == "curie":
-        model = "text-curie-001"
-    elif ai.model == "davinci":
-        model = "text-davinci-003"
-    else:
-        globalLog.error("Invalid model setting.")
-        return
+    # The new gpt-3.5-turbo
+    model = ai.model
 
-    response = openai.Completion.create(
+    # Varying the base prompt with existing chats might work better, although this can be optional
+    # we need to check first if we have the correct values. Goosr has this but goobr does not.
+    if '### EXAMPLE CHATS' in basePrompt and exampleChats:
+        random_lines = random.sample(exampleChats, 300)
+        random_lines_str = '\n'.join(random_lines)
+        system_base_prompt = basePrompt.replace('### EXAMPLE CHATS', random_lines_str)
+    else:
+        system_base_prompt = basePrompt
+
+    response = openai.ChatCompletion.create(
         model=model,
         temperature=ai.temperature,
-        prompt=prompt,
+        messages=[{"role": "system", "content": system_base_prompt}, {"role": "user", "content": prompt}],
         max_tokens=max_tokens,
         top_p=1,
         frequency_penalty=0.0,
         presence_penalty=0.0,
         stop=stop,
-        echo=False,
-        best_of=ai.best_of,
     )
 
     # print prompt to console for debugging
@@ -91,10 +80,10 @@ def openaiRequest(prompt, stop="", max_tokens=35):
     finish_reason = response.choices[0].finish_reason
 
     # select the top answer and replace blank lines with a newline
-    answer = response.choices[0].text.strip().replace("\n\n", "\n")
+    answer = response['choices'][0]['message']['content'].strip().replace("\n\n", "\n")
 
     if finish_reason != "stop":
-        if any(punct in answer for punct in ["! ","? ",". "]):
+        if any(punct in answer for punct in ["! ", "? ", ". "]):
             globalLog.warning(
                 f"Did not hit a stop token, trimming this answer. Finish reason: {finish_reason}. Answer was: {answer}"
             )
@@ -126,12 +115,12 @@ class goosr(pydle.Client):
         for channel in channels:
             await self.join(channel)
             await sleep(1)
-        #self.joinChannels = []
+        # self.joinChannels = []
 
-        if globalCfg.randomPersonality:
-            personality, accent = await self.randomizePersonality()
-            prompt = f"Generate a {personality} response {accent}:"
-            self.log.info(f"Randomized personlity. New prompt: {prompt}")
+        # if globalCfg.randomPersonality:
+        #     personality, accent = await self.randomizePersonality()
+        #     prompt = f"Generate a {personality} response {accent}:"
+        #     self.log.info(f"Randomized personlity. New prompt: {prompt}")
 
     async def on_join(self, channel, user):
         """ Callback called when a user, possibly the client, joined a channel. """
@@ -261,38 +250,39 @@ class goosr(pydle.Client):
                             # ~kill
                             self.log.info(f"Received kill command.")
                             os._exit(0)
-                        elif command == "randomize":
-                            # randomize personality and accent
-                            # ~randomize
-                            personality, accent = await self.randomizePersonality()
-                            prompt = f"Generate a {personality} response {accent}:"
-                            await self.message(source, f"New prompt: {prompt}")
-
-                            # display a sample
-                            channel = choice(list(self.channels))
-                            chatBuffer = self.channels[channel]["chatBuffer"]
-                            prompt = await self.create_prompt(
-                                chatBuffer,
-                                personality=self.personality,
-                                accent=self.accent,
-                            )
-                            answer = openaiRequest(prompt, " \n", max_tokens)
-                            answer = answer.lower().replace("\n", " ")
-                            answer = await self.strip_answer(answer)
-                            if await self.filter_answer(answer):
-                                self.log.warning(
-                                    f"Answer was rejected: {answer}")
-                                return
-                            if answer:
-                                await self.message(
-                                    source, f"Sample response for {channel}: {answer}"
-                                )
-                                return
-                            else:
-                                await self.message(
-                                    source,
-                                    f"No good response returned response for {channel}",
-                                )
+                        # elif command == "randomize":
+                        #     # randomize personality and accent
+                        #     # python is for straight white males
+                        #     # ~randomize
+                        #     personality, accent = await self.randomizePersonality()
+                        #     prompt = f"Generate a {personality} response {accent}:"
+                        #     await self.message(source, f"New prompt: {prompt}")
+                        #
+                        #     # display a sample
+                        #     channel = choice(list(self.channels))
+                        #     chatBuffer = self.channels[channel]["chatBuffer"]
+                        #     prompt = await self.create_prompt(
+                        #         chatBuffer,
+                        #         personality=self.moods,
+                        #         accent=self.accent,
+                        #     )
+                        #     answer = openaiRequest(prompt, " \n", max_tokens)
+                        #     answer = answer.lower().replace("\n", " ")
+                        #     answer = await self.strip_answer(answer)
+                        #     if await self.filter_answer(answer):
+                        #         self.log.warning(
+                        #             f"Answer was rejected: {answer}")
+                        #         return
+                        #     if answer:
+                        #         await self.message(
+                        #             source, f"Sample response for {channel}: {answer}"
+                        #         )
+                        #         return
+                        #     else:
+                        #         await self.message(
+                        #             source,
+                        #             f"No good response returned response for {channel}",
+                        #         )
                         elif command == "reload":
                             # reload global config
                             # ~reload
@@ -301,9 +291,8 @@ class goosr(pydle.Client):
                         elif command == "status":
                             # check status
                             # ~status
-                            status = f"P/A: '{self.personality}'/'{self.accent}' Channels: {list(self.channels.keys())} Rejoining: {self.rejoining}"
+                            status = f"P/A: '{self.moods}' Channels: {list(self.channels.keys())} Rejoining: {self.rejoining}"
                             await self.message(source, status)
-
 
         if await self.filter_message(message, target, source):
             return
@@ -384,7 +373,7 @@ class goosr(pydle.Client):
                     chance = 100
                 else:
                     chance = globalCfg.directReplyChance
-                #chatBuffer = userBuffer[source][target]
+                # chatBuffer = userBuffer[source][target]
                 # calculate delay timer based on wpm setting to 'read' the line twice as fast as we type
                 delayTimer = len(message.split(" ")) / (globalCfg.wpm / 30)
                 await sleep(5.55 + delayTimer)
@@ -393,18 +382,17 @@ class goosr(pydle.Client):
 
                 # create a prompt
                 if self.nickname.lower() in message.lower():
-
                     prompt = await self.create_prompt(
-                        userBuffer[source][target] + chatBuffer, personality=self.personality, accent=self.accent
+                        userBuffer[source][target] + chatBuffer, mood=self.moods
                     )
                 else:
                     prompt = await self.create_prompt(
-                        chatBuffer, personality=self.personality, accent=self.accent
+                        chatBuffer, mood=self.moods
                     )
 
                 # use newline as the stop token
                 answer = openaiRequest(prompt, " \n", ai.max_tokens)
-                #answer = answer.lower().split("\n")[0]
+                # answer = answer.lower().split("\n")[0]
                 answer = answer.lower().replace("\n", ". ")
                 answer = await self.strip_answer(answer)
                 if answer:
@@ -418,7 +406,7 @@ class goosr(pydle.Client):
                         if await self.filter_answer(line):
                             self.log.warning(f"Answer was rejected: {line}")
                             continue
-                        
+
                         # add my own lines to the channel buffer
                         chatBuffer.append(f"{self.nickname}: {line}".strip())
                         chatBuffer = chatBuffer[-1 * (globalCfg.chanBufferLength):]
@@ -529,23 +517,24 @@ class goosr(pydle.Client):
 
         return answer
 
-    async def create_prompt(self, buffer, personality, accent):
-        """Combine the buffer with the personality and accent to create a prompt for the API."""
+    async def create_prompt(self, buffer, mood):
+        """Combine the buffer with the personality and mood to create a prompt for the API."""
         header = f"Your name is {self.nickname}. The following is a chat log between you and other chatters:"
         chatlog = "\n".join(buffer)
         if self.nickname in buffer[-1]:
-            disposition = f"Responding to {buffer[-1].split(': ', 1)[0]}, create a {personality} response {accent}:"
+            disposition = f"Responding to {buffer[-1].split(': ', 1)[0]}, create a {mood} response:"
         else:
-            disposition = f"Without mentioning your own name, create a {personality} response {accent}:"
-        
+            disposition = f"Without mentioning your own name, create a {mood} response:"
+
         prompt = "\n\n".join([header, chatlog, disposition])
         return prompt
 
     async def randomizePersonality(self):
-        """Set a random personality and accent from the lists."""
-        self.personality = choice(personalities)
-        self.accent = choice(accents)
-        return [self.personality, self.accent]
+        """Set a random personality and mood from the lists."""
+        personalities = os.listdir("personalities")
+        personality = choice(personalities)
+
+        return None
 
     async def check_similarity(self, answer, buffer):
         """Uses the Jaro-Winkler function to determine the similarity between two strings.
@@ -562,7 +551,7 @@ class goosr(pydle.Client):
 
     async def reloadGlobals(self):
         """Reload global configuration and AI settings."""
-        global adminList, ignoreList, ignoredWords, personalities, accents, globalCfg, ai
+        global adminList, ignoreList, ignoredWords, moods, globalCfg, ai, basePrompt, exampleChats
 
         with open(configPath, "r") as file:
             config = yaml.safe_load(file)
@@ -573,8 +562,6 @@ class goosr(pydle.Client):
         for name, value in config["global"]["ai"].items():
             ai.__setattr__(name, value)
 
-        # reload list files
-
         with open("admin_users") as file:
             adminList = file.read().splitlines()
 
@@ -584,16 +571,40 @@ class goosr(pydle.Client):
         with open("ignore_words") as file:
             ignoredWords = file.read().splitlines()
 
-        with open("personalities") as file:
-            personalities = file.read().splitlines()
+        with open("personalities/" + globalCfg.personality + "/moods.txt") as file:
+            moods = file.read().splitlines()
 
-        with open("accents") as file:
-            accents = file.read().splitlines()
+        # This file must exist as it's used as the system prompt for all API requests
+        file_path = "personalities/" + globalCfg.personality + "/system_prompt.txt"
+        if os.path.isfile(file_path):
+            with open(file_path) as file:
+                basePrompt = file.read()
+        else:
+            raise FileNotFoundError(f"No such file or directory: '{file_path}'")
+
+        # Optional example chats, the  above base prompt personality must have ### EXAMPLE CHATS in it
+        # When each request is made to OpenAI, we will vary the example chats.
+        file_path = "personalities/" + globalCfg.personality + "/example_chats.txt"
+        if os.path.isfile(file_path):
+            with open(file_path) as file:
+                exampleChats = file.read().splitlines()
+        else:
+            exampleChats = None
 
         return True
 
 
 if __name__ == "__main__":
+    global basePrompt, exampleChats
+
+    if not os.path.isfile(".env"):
+        print("Copy .env.example to .env and put your openai or compatible key to continue")
+        os._exit(0)
+
+    if not os.path.isfile("goosr.yaml"):
+        print("Copy goosr.yaml.example to goosr.yaml and fill in your details to continue")
+        os._exit(0)
+
     simple = types.SimpleNamespace()
     pond = pydle.ClientPool()
     # set up logging
@@ -618,11 +629,52 @@ if __name__ == "__main__":
     for name, value in config["global"]["ai"].items():
         ai.__setattr__(name, value)
 
+    # Check to see if the personality has been specified on the command line
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--personality', type=str, help='Overwrite personality')
+    args = parser.parse_args()
+
+    if args.personality:
+        globalCfg.personality = args.personality
+
+    # Load the personality from file
+    # This file must exist as it's used as the system prompt for all API requests
+    file_path = "personalities/" + globalCfg.personality + "/system_prompt.txt"
+    if os.path.isfile(file_path):
+        with open(file_path) as file:
+            basePrompt = file.read()
+    else:
+        raise FileNotFoundError(f"No such file or directory: '{file_path}'")
+
+    # Optional example chats, the  above base prompt personality must have ### EXAMPLE CHATS in it
+    # When each request is made to OpenAI, we will vary the example chats.
+    file_path = "personalities/" + globalCfg.personality + "/example_chats.txt"
+    if os.path.isfile(file_path):
+        with open(file_path) as file:
+            exampleChats = file.read().splitlines()
+    else:
+        exampleChats = None
+
+    with open("personalities/" + globalCfg.personality + "/moods.txt") as file:
+        moods = file.read().splitlines()
+
     for client in config["clients"].items():
         if client[1]["enabled"]:
-            nick = client[1]["ident"]["nick"]
-            user = client[1]["ident"]["user"]
-            real = client[1]["ident"]["real"]
+            # If the values are blank in the config, we will default to the personality
+            if client[1]["ident"]["nick"] == '':
+                nick = globalCfg.personality
+            else:
+                nick = client[1]["ident"]["nick"]
+
+            if client[1]["ident"]["user"] == '':
+                user = globalCfg.personality
+            else:
+                user = client[1]["ident"]["user"]
+
+            if client[1]["ident"]["real"] == '':
+                real = globalCfg.personality
+            else:
+                real = client[1]["ident"]["real"]
 
             # randomize ident
             if globalCfg.randomIdent["enabled"]:
@@ -683,8 +735,7 @@ if __name__ == "__main__":
             bot.userBuffers = {}
             bot.rejoining = []
             bot.typing = False
-            bot.personality = personalities[0]
-            bot.accent = accents[0]
+            bot.moods = moods[0]
             bot.re_alpha = re.compile(r"[a-zA-Z]")
 
             # re to match all non-ascii
@@ -710,7 +761,6 @@ if __name__ == "__main__":
         pond.handle_forever()
     except Exception as x:
         globalLog.error(f"Uncaught exception: " + ''.join(traceback.format_exception(None, x, x.__traceback__)))
-
 
 # todo:
 
